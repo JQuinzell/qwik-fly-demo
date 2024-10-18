@@ -11,7 +11,7 @@ export default component$(() => {
         <br />
         to have <span class='highlight'>you</span> here
       </h1>
-      <p>This is version 3</p>
+      <p>This is version 2</p>
       <div class={styles['button-group']}>
         <button
           onClick$={async () => {
