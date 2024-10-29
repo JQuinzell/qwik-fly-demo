@@ -3,22 +3,13 @@ Parameters:
   ECRImageURI:
     Type: String
     Description: URI of the ECR image (e.g., 123456789012.dkr.ecr.region.amazonaws.com/my-repo:latest).
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: ID of the default VPC.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets in the default VPC.
 Resources:
-
-  DefaultVpc:
-    Type: AWS::EC2::VPC
-    Properties:
-      Filters:
-        - Name: "isDefault"
-          Values: ["true"]
-
-  DefaultSubnets:
-    Type: "AWS::EC2::Subnet"
-    Properties:
-      Filters:
-        - Name: "vpc-id"
-          Values: [!Ref DefaultVpc]
-
   ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
