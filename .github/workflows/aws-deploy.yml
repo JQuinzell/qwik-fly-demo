@@ -34,6 +34,6 @@ jobs:
       - name: Update CloudFormation Stack
         run: |
           aws cloudformation update-stack \
-            --stack-name preview-stack \
+            --stack-name dev-env \
             --template-body file://preview-stack.yml \
             --parameters ParameterKey=ECRImageURI,ParameterValue=$IMAGE_URI \
