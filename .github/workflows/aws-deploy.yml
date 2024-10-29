@@ -24,16 +24,19 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build, Tag, and Push Docker image to ECR
-        run: |
-          IMAGE_URI="651706755494.dkr.ecr.us-east-2.amazonaws.com/demo-app:$GITHUB_SHA"
-          docker build -t $IMAGE_URI .
-          docker push $IMAGE_URI
-          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+      # - name: Build, Tag, and Push Docker image to ECR
+      #   run: |
+      #     IMAGE_URI="651706755494.dkr.ecr.us-east-2.amazonaws.com/demo-app:$GITHUB_SHA"
+      #     docker build -t $IMAGE_URI .
+      #     docker push $IMAGE_URI
+      #     echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
 
       - name: Update CloudFormation Stack
         run: |
           aws cloudformation update-stack \
             --stack-name dev-env \
             --template-body file://preview-stack.yml \
-            --parameters ParameterKey=ECRImageURI,ParameterValue=$IMAGE_URI \
+            --parameters \
+              ParameterKey=ECRImageURI,UsePreviousValue=true \
+              ParameterKey=DefaultVpcId,UsePreviousValue=true \
+              ParameterKey=DefaultSubnetIds,UsePreviousValue=true \
