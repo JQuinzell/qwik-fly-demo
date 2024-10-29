@@ -1,0 +1,39 @@
+# See https://fly.io/docs/app-guides/continuous-deployment-with-github-actions/
+
+name: AWS Deploy
+on:
+  push:
+    branches:
+      - aws-mode
+jobs:
+  deploy:
+    name: Deploy app
+    runs-on: ubuntu-latest
+    concurrency: aws-deploy-group # optional: ensure only one action runs at a time
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, Tag, and Push Docker image to ECR
+        run: |
+          IMAGE_URI="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/demo-app:$GITHUB_SHA"
+          docker build -t $IMAGE_URI .
+          docker push $IMAGE_URI
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
+      - name: Update CloudFormation Stack
+        run: |
+          aws cloudformation update-stack \
+            --stack-name preview-stack \
+            --template-body file://preview-stack.yml \
+            --parameters ParameterKey=ECRImageURI,ParameterValue=$IMAGE_URI \
