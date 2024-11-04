@@ -139,6 +139,9 @@ Resources:
         - Name: nodejs-app
           Image: !Ref ECRImageURI
           Essential: true
+          Environment:
+            - Name: PORT
+              Value: '80'
           PortMappings:
             - ContainerPort: 80
               Protocol: tcp
