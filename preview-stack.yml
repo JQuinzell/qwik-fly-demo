@@ -40,8 +40,8 @@ Resources:
                   - logs:PutLogEvents
                   - logs:CreateLogGroup
                 Resource:
-                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${AWS::StackName}-logs:*
-
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/*'
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/*:*'
   ECSContainerRole:
     Type: AWS::IAM::Role
     Properties:
@@ -177,14 +177,61 @@ Resources:
 
 Outputs:
   ClusterName:
-    Description: Name of the ECS cluster.
+    Description: Name of the ECS cluster
     Value: !Ref ECSCluster
+    Export:
+      Name: !Sub ${AWS::StackName}-ClusterName
+
   ServiceName:
-    Description: Name of the ECS service.
+    Description: Name of the ECS service
     Value: !Ref ECSService
+    Export:
+      Name: !Sub ${AWS::StackName}-ServiceName
+
   TaskDefinitionArn:
-    Description: ARN of the ECS task definition.
+    Description: ARN of the ECS task definition
     Value: !Ref ECSTaskDefinition
+    Export:
+      Name: !Sub ${AWS::StackName}-TaskDefinitionArn
+
   LoadBalancerDNSName:
-    Description: DNS name of the load balancer.
+    Description: DNS name of the load balancer
     Value: !GetAtt LoadBalancer.DNSName
+    Export:
+      Name: !Sub ${AWS::StackName}-LoadBalancerDNSName
+
+  ListenerArn:
+    Description: ARN of the ALB listener
+    Value: !Ref Listener
+    Export:
+      Name: !Sub ${AWS::StackName}-ListenerArn
+
+  VpcId:
+    Description: ID of the VPC
+    Value: !Ref VpcId
+    Export:
+      Name: !Sub ${AWS::StackName}-VpcId
+
+  SubnetIds:
+    Description: List of subnet IDs
+    Value: !Join [',', !Ref SubnetIds]
+    Export:
+      Name: !Sub ${AWS::StackName}-SubnetIds
+
+  ECSSecurityGroupId:
+    Description: ID of the ECS security group
+    Value: !Ref ECSSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-ECSSecurityGroupId
+
+  TaskExecutionRoleArn:
+    Description: ARN of the ECS task execution role
+    Value: !GetAtt ECSTaskExecutionRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-TaskExecutionRoleArn
+
+  ContainerRoleArn:
+    Description: ARN of the ECS container role
+    Value: !GetAtt ECSContainerRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-ContainerRoleArn
