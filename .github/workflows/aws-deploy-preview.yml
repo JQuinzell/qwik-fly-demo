@@ -1,0 +1,119 @@
+name: Preview Deploy
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - master
+
+jobs:
+  deploy:
+    name: Deploy preview environment
+    runs-on: ubuntu-latest
+    concurrency:
+      group: preview-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: us-east-2
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ hashFiles('**/Dockerfile', '**/package.json', '**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Generate preview environment name
+        run: |
+          PR_NUMBER=$(echo $GITHUB_REF | awk 'BEGIN { FS = "/" } ; { print $3 }')
+          STACK_NAME="preview-pr-${PR_NUMBER}"
+          echo "STACK_NAME=${STACK_NAME}" >> $GITHUB_ENV
+
+      - name: Build, Tag, and Push Docker image to ECR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: 651706755494.dkr.ecr.us-east-2.amazonaws.com/demo-app:pr-${{ github.event.pull_request.number }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      - name: Deploy Preview Stack
+        run: |
+          IMAGE_URI="651706755494.dkr.ecr.us-east-2.amazonaws.com/demo-app:pr-${{ github.event.pull_request.number }}"
+
+          # Check if stack exists
+          if ! aws cloudformation describe-stacks --stack-name $STACK_NAME 2>&1 >/dev/null; then
+            echo "Stack does not exist, creating preview environment..."
+            aws cloudformation create-stack \
+              --stack-name $STACK_NAME \
+              --template-body file://preview-listener.yml \
+              --capabilities CAPABILITY_NAMED_IAM \
+              --parameters \
+                ParameterKey=ECRImageURI,ParameterValue=$IMAGE_URI \
+                ParameterKey=VpcId,ParameterValue=vpc-04b00294ea18ee76a \
+                ParameterKey=SubnetIds,ParameterValue='"subnet-0814e6f185426179e,subnet-0952e9d2acd6c19b8,subnet-0fbde57cbddb44778"'
+            
+            # Wait for stack creation to complete
+            aws cloudformation wait stack-create-complete --stack-name $STACK_NAME
+          else
+            echo "Stack exists, updating preview environment..."
+            aws cloudformation update-stack \
+              --stack-name $STACK_NAME \
+              --template-body file://preview-listener.yml \
+              --capabilities CAPABILITY_NAMED_IAM \
+              --parameters \
+                ParameterKey=ECRImageURI,ParameterValue=$IMAGE_URI \
+                ParameterKey=VpcId,UsePreviousValue=true \
+                ParameterKey=SubnetIds,UsePreviousValue=true
+            
+            # Wait for stack update to complete
+            aws cloudformation wait stack-update-complete --stack-name $STACK_NAME
+          fi
+
+      - name: Get Stack Outputs
+        id: get-outputs
+        run: |
+          # Wait a moment for the stack to stabilize
+          sleep 10
+
+          # Get the stack outputs
+          OUTPUTS=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs')
+
+          # Extract the URL (adjust the OutputKey based on your template)
+          URL=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="ServiceURL") | .OutputValue')
+
+          echo "Preview environment is ready at: $URL"
+
+          # Post comment to PR
+          gh pr comment ${{ github.event.pull_request.number }} --body "Preview environment is ready at: $URL"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup Preview Environment
+        if: github.event.action == 'closed'
+        run: |
+          echo "Cleaning up preview environment..."
+          aws cloudformation delete-stack --stack-name $STACK_NAME
+          aws cloudformation wait stack-delete-complete --stack-name $STACK_NAME
