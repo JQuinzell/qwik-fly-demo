@@ -29,7 +29,7 @@ jobs:
       - name: Build, Tag, and Push Docker image to ECR
         id: build_step
         run: |
-          IMAGE_URI="651706755494.dkr.ecr.us-east-2.amazonaws.com/demo-app:pr-${{ github.event.pull_request.number }}"
+          IMAGE_URI="651706755494.dkr.ecr.us-east-2.amazonaws.com/demo-app:$GITHUB_SHA"
           docker build -t $IMAGE_URI .
           docker push $IMAGE_URI
           echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
