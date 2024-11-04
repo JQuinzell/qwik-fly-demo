@@ -1,5 +1,3 @@
-# See https://fly.io/docs/app-guides/continuous-deployment-with-github-actions/
-
 name: AWS Deploy
 on:
   push:
@@ -9,7 +7,7 @@ jobs:
   deploy:
     name: Deploy app
     runs-on: ubuntu-latest
-    concurrency: aws-deploy-group # optional: ensure only one action runs at a time
+    concurrency: aws-deploy-group
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -24,19 +22,38 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v1
 
-      # - name: Build, Tag, and Push Docker image to ECR
-      #   run: |
-      #     IMAGE_URI="651706755494.dkr.ecr.us-east-2.amazonaws.com/demo-app:$GITHUB_SHA"
-      #     docker build -t $IMAGE_URI .
-      #     docker push $IMAGE_URI
-      #     echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
-
-      - name: Update CloudFormation Stack
+      - name: Build, Tag, and Push Docker image to ECR
         run: |
-          aws cloudformation update-stack \
-            --stack-name dev-env \
-            --template-body file://preview-stack.yml \
-            --parameters \
-              ParameterKey=ECRImageURI,UsePreviousValue=true \
-              ParameterKey=DefaultVpcId,UsePreviousValue=true \
-              ParameterKey=DefaultSubnetIds,UsePreviousValue=true \
+          IMAGE_URI="651706755494.dkr.ecr.us-east-2.amazonaws.com/demo-app:$GITHUB_SHA"
+          docker build -t $IMAGE_URI .
+          docker push $IMAGE_URI
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
+      - name: Deploy CloudFormation Stack
+        run: |
+          # Check if stack exists
+          if ! aws cloudformation describe-stacks --stack-name dev-env 2>&1 >/dev/null; then
+            echo "Stack does not exist, creating..."
+            aws cloudformation create-stack \
+              --stack-name dev-env \
+              --template-body file://preview-stack.yml \
+              --parameters \
+                ParameterKey=ECRImageURI,ParameterValue=$IMAGE_URI \
+                ParameterKey=DefaultVpcId,ParameterValue=vpc-04b00294ea18ee76a \
+                ParameterKey=DefaultSubnetIds,ParameterValue=subnet-0814e6f185426179e,subnet-0952e9d2acd6c19b8,subnet-0fbde57cbddb44778
+            
+            # Wait for stack creation to complete
+            aws cloudformation wait stack-create-complete --stack-name dev-env
+          else
+            echo "Stack exists, updating..."
+            aws cloudformation update-stack \
+              --stack-name dev-env \
+              --template-body file://preview-stack.yml \
+              --parameters \
+                ParameterKey=ECRImageURI,UsePreviousValue=true \
+                ParameterKey=DefaultVpcId,UsePreviousValue=true \
+                ParameterKey=DefaultSubnetIds,UsePreviousValue=true
+            
+            # Wait for stack update to complete
+            aws cloudformation wait stack-update-complete --stack-name dev-env
+          fi
