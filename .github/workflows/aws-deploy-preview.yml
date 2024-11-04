@@ -96,14 +96,7 @@ jobs:
       - name: Get Stack Outputs
         id: get-outputs
         run: |
-          # Wait a moment for the stack to stabilize
-          sleep 10
-
-          # Get the stack outputs
-          OUTPUTS=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs')
-
-          # Extract the URL (adjust the OutputKey based on your template)
-          URL=$(echo $OUTPUTS | jq -r '.[] | select(.OutputKey=="ServiceURL") | .OutputValue')
+          URL=pr-${{ github.event.pull_request.number }}.jquinzell-labs.com
 
           echo "Preview environment is ready at: $URL"
 
