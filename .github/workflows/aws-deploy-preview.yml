@@ -84,10 +84,10 @@ jobs:
               --template-body file://preview-listener.yml \
               --capabilities CAPABILITY_NAMED_IAM \
               --parameters \
-                ParameterKey=ParentStackName,ParameterValue=dev-env \
                 ParameterKey=ECRImageURI,ParameterValue=${{ needs.build.outputs.image_uri }} \
-                ParameterKey=DomainName,ParameterValue=${{ secrets.DOMAIN_NAME }} \
-                ParameterKey=VersionName,ParameterValue=$VERSION_NAME
+                ParameterKey=ParentStackName,UsePreviousValue=true \
+                ParameterKey=DomainName,UsePreviousValue=true \
+                ParameterKey=VersionName,UsePreviousValue=true
             
             # Wait for stack update to complete
             aws cloudformation wait stack-update-complete --stack-name $STACK_NAME
