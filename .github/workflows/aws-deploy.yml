@@ -3,11 +3,13 @@ on:
   push:
     branches:
       - aws-mode
+
 jobs:
-  deploy:
-    name: Deploy app
+  build:
+    name: Build and Push Image
     runs-on: ubuntu-latest
-    concurrency: aws-deploy-group
+    outputs:
+      image_uri: ${{ steps.build_step.outputs.image_uri }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -23,11 +25,28 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v1
 
       - name: Build, Tag, and Push Docker image to ECR
+        id: build_step
         run: |
           IMAGE_URI="651706755494.dkr.ecr.us-east-2.amazonaws.com/demo-app:$GITHUB_SHA"
           docker build -t $IMAGE_URI .
           docker push $IMAGE_URI
-          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+  deploy:
+    name: Deploy Stack
+    needs: [build]
+    runs-on: ubuntu-latest
+    concurrency: aws-deploy-group
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: us-east-2
 
       - name: Deploy CloudFormation Stack
         run: |
@@ -39,9 +58,9 @@ jobs:
               --template-body file://preview-stack.yml \
               --capabilities CAPABILITY_NAMED_IAM \
               --parameters \
-                ParameterKey=ECRImageURI,ParameterValue=$IMAGE_URI \
+                ParameterKey=ECRImageURI,ParameterValue=${{ needs.build.outputs.image_uri }} \
                 ParameterKey=VpcId,ParameterValue=vpc-04b00294ea18ee76a \
-                ParameterKey=SubnetIds,ParameterValue='"subnet-0814e6f185426179e,subnet-0952e9d2acd6c19b8,subnet-0fbde57cbddb44778"'            
+                ParameterKey=SubnetIds,ParameterValue='"subnet-0814e6f185426179e,subnet-0952e9d2acd6c19b8,subnet-0fbde57cbddb44778"'
             # Wait for stack creation to complete
             aws cloudformation wait stack-create-complete --stack-name dev-env
           else
@@ -51,7 +70,7 @@ jobs:
               --template-body file://preview-stack.yml \
               --capabilities CAPABILITY_NAMED_IAM \
               --parameters \
-                ParameterKey=ECRImageURI,UsePreviousValue=true \
+                ParameterKey=ECRImageURI,ParameterValue=${{ needs.build.outputs.image_uri }} \
                 ParameterKey=VpcId,UsePreviousValue=true \
                 ParameterKey=SubnetIds,UsePreviousValue=true
             
