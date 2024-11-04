@@ -56,7 +56,9 @@ jobs:
         run: |
           PR_NUMBER=$(echo $GITHUB_REF | awk 'BEGIN { FS = "/" } ; { print $3 }')
           STACK_NAME="preview-pr-${PR_NUMBER}"
+          VERSION_NAME="pr-${PR_NUMBER}"
           echo "STACK_NAME=${STACK_NAME}" >> $GITHUB_ENV
+          echo "VERSION_NAME=${VERSION_NAME}" >> $GITHUB_ENV
 
       - name: Deploy Preview Stack
         run: |
@@ -68,9 +70,10 @@ jobs:
               --template-body file://preview-listener.yml \
               --capabilities CAPABILITY_NAMED_IAM \
               --parameters \
+                ParameterKey=ParentStackName,ParameterValue=dev-env \
                 ParameterKey=ECRImageURI,ParameterValue=${{ needs.build.outputs.image_uri }} \
-                ParameterKey=VpcId,ParameterValue=vpc-04b00294ea18ee76a \
-                ParameterKey=SubnetIds,ParameterValue='"subnet-0814e6f185426179e,subnet-0952e9d2acd6c19b8,subnet-0fbde57cbddb44778"'
+                ParameterKey=DomainName,ParameterValue=jquinzell-labs.com \
+                ParameterKey=VersionName,ParameterValue=$VERSION_NAME
             
             # Wait for stack creation to complete
             aws cloudformation wait stack-create-complete --stack-name $STACK_NAME
@@ -81,9 +84,10 @@ jobs:
               --template-body file://preview-listener.yml \
               --capabilities CAPABILITY_NAMED_IAM \
               --parameters \
+                ParameterKey=ParentStackName,ParameterValue=dev-env \
                 ParameterKey=ECRImageURI,ParameterValue=${{ needs.build.outputs.image_uri }} \
-                ParameterKey=VpcId,UsePreviousValue=true \
-                ParameterKey=SubnetIds,UsePreviousValue=true
+                ParameterKey=DomainName,ParameterValue=${{ secrets.DOMAIN_NAME }} \
+                ParameterKey=VersionName,ParameterValue=$VERSION_NAME
             
             # Wait for stack update to complete
             aws cloudformation wait stack-update-complete --stack-name $STACK_NAME
