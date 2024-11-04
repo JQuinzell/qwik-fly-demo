@@ -8,6 +8,9 @@ Parameters:
   DomainName:
     Type: String
     Description: Custom domain name (e.g., example.com)
+  VersionName:
+    Type: String
+    Description: Version name of the new service
 
 Resources:
   NewTargetGroup:
@@ -25,27 +28,6 @@ Resources:
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 2
 
-  # Certificate:
-  #   Type: AWS::CertificateManager::Certificate
-  #   Properties:
-  #     DomainName: !Ref DomainName
-  #     SubjectAlternativeNames:
-  #       - !Sub '*.${DomainName}'
-  #     ValidationMethod: DNS
-
-  DNSRecord:
-    Type: AWS::Route53::RecordSet
-    Properties:
-      HostedZoneName: !Sub '${DomainName}.'
-      Name: !Sub 'v2.${DomainName}'
-      Type: A
-      AliasTarget:
-        DNSName:
-          Fn::ImportValue: !Sub '${ParentStackName}-LoadBalancerDNSName'
-        # TODO: do not hardcode this
-        HostedZoneId: Z03496931K53OQJJRWXHK
-        EvaluateTargetHealth: true
-
   NewListenerRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
@@ -55,7 +37,7 @@ Resources:
       Conditions:
         - Field: host-header
           Values:
-            - !Sub 'v2.${DomainName}'
+            - !Sub '${VersionName}.${DomainName}'
       Actions:
         - Type: forward
           TargetGroupArn: !Ref NewTargetGroup
