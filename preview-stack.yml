@@ -9,6 +9,7 @@ Parameters:
   SubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
     Description: Subnets in the default VPC.
+
 Resources:
   ECSCluster:
     Type: AWS::ECS::Cluster
@@ -28,6 +29,18 @@ Resources:
             Action: 'sts:AssumeRole'
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: CloudWatchLogsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:CreateLogGroup
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${AWS::StackName}-logs:*
 
   ECSContainerRole:
     Type: AWS::IAM::Role
@@ -65,6 +78,52 @@ Resources:
           ToPort: 80
           CidrIp: 0.0.0.0/0
 
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${AWS::StackName}-albSecurityGroup'
+      GroupDescription: Security group for the load balancer.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${AWS::StackName}-alb'
+      Subnets: !Ref SubnetIds
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Scheme: internet-facing
+      Type: application
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${AWS::StackName}-targetGroup'
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+
   ECSTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -83,9 +142,19 @@ Resources:
           PortMappings:
             - ContainerPort: 80
               Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-create-group: true
+              awslogs-group: !Sub '/ecs/${AWS::StackName}-logs'
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: nodejs-app
 
   ECSService:
     Type: AWS::ECS::Service
+    DependsOn:
+      - Listener
+      - LoadBalancer
     Properties:
       Cluster: !Ref ECSCluster
       ServiceName: !Sub '${AWS::StackName}-service'
@@ -98,6 +167,10 @@ Resources:
           Subnets: !Ref SubnetIds
           SecurityGroups:
             - !Ref ECSSecurityGroup
+      LoadBalancers:
+        - TargetGroupArn: !Ref TargetGroup
+          ContainerName: nodejs-app
+          ContainerPort: 80
 
 Outputs:
   ClusterName:
@@ -109,3 +182,6 @@ Outputs:
   TaskDefinitionArn:
     Description: ARN of the ECS task definition.
     Value: !Ref ECSTaskDefinition
+  LoadBalancerDNSName:
+    Description: DNS name of the load balancer.
+    Value: !GetAtt LoadBalancer.DNSName
