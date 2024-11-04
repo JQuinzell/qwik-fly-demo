@@ -39,8 +39,8 @@ jobs:
               --template-body file://preview-stack.yml \
               --parameters \
                 ParameterKey=ECRImageURI,ParameterValue=$IMAGE_URI \
-                ParameterKey=DefaultVpcId,ParameterValue=vpc-04b00294ea18ee76a \
-                ParameterKey=DefaultSubnetIds,ParameterValue='"subnet-0814e6f185426179e,subnet-0952e9d2acd6c19b8,subnet-0fbde57cbddb44778"'            
+                ParameterKey=VpcId,ParameterValue=vpc-04b00294ea18ee76a \
+                ParameterKey=SubnetIds,ParameterValue='"subnet-0814e6f185426179e,subnet-0952e9d2acd6c19b8,subnet-0fbde57cbddb44778"'            
             # Wait for stack creation to complete
             aws cloudformation wait stack-create-complete --stack-name dev-env
           else
@@ -50,8 +50,8 @@ jobs:
               --template-body file://preview-stack.yml \
               --parameters \
                 ParameterKey=ECRImageURI,UsePreviousValue=true \
-                ParameterKey=DefaultVpcId,UsePreviousValue=true \
-                ParameterKey=DefaultSubnetIds,UsePreviousValue=true
+                ParameterKey=VpcId,UsePreviousValue=true \
+                ParameterKey=SubnetIds,UsePreviousValue=true
             
             # Wait for stack update to complete
             aws cloudformation wait stack-update-complete --stack-name dev-env
