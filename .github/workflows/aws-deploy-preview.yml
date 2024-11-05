@@ -1,14 +1,14 @@
 name: Preview Deploy
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, closed]
     branches:
       - main
-      - master
 
 jobs:
   build:
     name: Build and Push Image
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     outputs:
       image_uri: ${{ steps.build_step.outputs.image_uri }}
@@ -36,6 +36,7 @@ jobs:
 
   deploy:
     name: Deploy Preview Environment
+    if: github.event.action != 'closed'
     needs: [build]
     runs-on: ubuntu-latest
     concurrency:
@@ -105,8 +106,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cleanup Preview Environment
-        if: github.event.action == 'closed'
+  cleanup:
+    name: Cleanup Preview Environment
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: us-east-2
+
+      - name: Generate stack name
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          STACK_NAME="preview-pr-${PR_NUMBER}"
+          echo "STACK_NAME=${STACK_NAME}" >> $GITHUB_ENV
+
+      - name: Delete preview stack
         run: |
           echo "Cleaning up preview environment..."
           aws cloudformation delete-stack --stack-name $STACK_NAME
