@@ -1,0 +1,113 @@
+name: Preview Deploy
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    name: Build and Push Image
+    runs-on: ubuntu-latest
+    outputs:
+      image_uri: ${{ steps.build_step.outputs.image_uri }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: us-east-2
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, Tag, and Push Docker image to ECR
+        id: build_step
+        run: |
+          IMAGE_URI="651706755494.dkr.ecr.us-east-2.amazonaws.com/demo-app:$GITHUB_SHA"
+          docker build -t $IMAGE_URI .
+          docker push $IMAGE_URI
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+  deploy:
+    name: Deploy Preview Environment
+    needs: [build]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: preview-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: us-east-2
+
+      - name: Generate preview environment name
+        run: |
+          PR_NUMBER=$(echo $GITHUB_REF | awk 'BEGIN { FS = "/" } ; { print $3 }')
+          STACK_NAME="preview-pr-${PR_NUMBER}"
+          VERSION_NAME="pr-${PR_NUMBER}"
+          echo "STACK_NAME=${STACK_NAME}" >> $GITHUB_ENV
+          echo "VERSION_NAME=${VERSION_NAME}" >> $GITHUB_ENV
+
+      - name: Deploy Preview Stack
+        run: |
+          # Check if stack exists
+          if ! aws cloudformation describe-stacks --stack-name $STACK_NAME 2>&1 >/dev/null; then
+            echo "Stack does not exist, creating preview environment..."
+            aws cloudformation create-stack \
+              --stack-name $STACK_NAME \
+              --template-body file://preview-listener.yml \
+              --capabilities CAPABILITY_NAMED_IAM \
+              --parameters \
+                ParameterKey=ParentStackName,ParameterValue=dev-env \
+                ParameterKey=ECRImageURI,ParameterValue=${{ needs.build.outputs.image_uri }} \
+                ParameterKey=DomainName,ParameterValue=jquinzell-labs.com \
+                ParameterKey=VersionName,ParameterValue=$VERSION_NAME
+            
+            # Wait for stack creation to complete
+            aws cloudformation wait stack-create-complete --stack-name $STACK_NAME
+          else
+            echo "Stack exists, updating preview environment..."
+            aws cloudformation update-stack \
+              --stack-name $STACK_NAME \
+              --template-body file://preview-listener.yml \
+              --capabilities CAPABILITY_NAMED_IAM \
+              --parameters \
+                ParameterKey=ECRImageURI,ParameterValue=${{ needs.build.outputs.image_uri }} \
+                ParameterKey=ParentStackName,UsePreviousValue=true \
+                ParameterKey=DomainName,UsePreviousValue=true \
+                ParameterKey=VersionName,UsePreviousValue=true
+            
+            # Wait for stack update to complete
+            aws cloudformation wait stack-update-complete --stack-name $STACK_NAME
+          fi
+
+      - name: Get Stack Outputs
+        id: get-outputs
+        run: |
+          URL=pr-${{ github.event.pull_request.number }}.jquinzell-labs.com
+
+          echo "Preview environment is ready at: $URL"
+
+          # Post comment to PR
+          gh pr comment ${{ github.event.pull_request.number }} --body "Preview environment is ready at: $URL"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup Preview Environment
+        if: github.event.action == 'closed'
+        run: |
+          echo "Cleaning up preview environment..."
+          aws cloudformation delete-stack --stack-name $STACK_NAME
+          aws cloudformation wait stack-delete-complete --stack-name $STACK_NAME

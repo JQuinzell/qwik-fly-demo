@@ -1,0 +1,79 @@
+name: AWS Deploy
+on:
+  push:
+    branches:
+      - aws-mode
+
+jobs:
+  build:
+    name: Build and Push Image
+    runs-on: ubuntu-latest
+    outputs:
+      image_uri: ${{ steps.build_step.outputs.image_uri }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: us-east-2
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, Tag, and Push Docker image to ECR
+        id: build_step
+        run: |
+          IMAGE_URI="651706755494.dkr.ecr.us-east-2.amazonaws.com/demo-app:$GITHUB_SHA"
+          docker build -t $IMAGE_URI .
+          docker push $IMAGE_URI
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+
+  deploy:
+    name: Deploy Stack
+    needs: [build]
+    runs-on: ubuntu-latest
+    concurrency: aws-deploy-group
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: us-east-2
+
+      - name: Deploy CloudFormation Stack
+        run: |
+          # Check if stack exists
+          if ! aws cloudformation describe-stacks --stack-name dev-env 2>&1 >/dev/null; then
+            echo "Stack does not exist, creating..."
+            aws cloudformation create-stack \
+              --stack-name dev-env \
+              --template-body file://preview-stack.yml \
+              --capabilities CAPABILITY_NAMED_IAM \
+              --parameters \
+                ParameterKey=ECRImageURI,ParameterValue=${{ needs.build.outputs.image_uri }} \
+                ParameterKey=VpcId,ParameterValue=vpc-04b00294ea18ee76a \
+                ParameterKey=SubnetIds,ParameterValue='"subnet-0814e6f185426179e,subnet-0952e9d2acd6c19b8,subnet-0fbde57cbddb44778"'
+            # Wait for stack creation to complete
+            aws cloudformation wait stack-create-complete --stack-name dev-env
+          else
+            echo "Stack exists, updating..."
+            aws cloudformation update-stack \
+              --stack-name dev-env \
+              --template-body file://preview-stack.yml \
+              --capabilities CAPABILITY_NAMED_IAM \
+              --parameters \
+                ParameterKey=ECRImageURI,ParameterValue=${{ needs.build.outputs.image_uri }} \
+                ParameterKey=VpcId,UsePreviousValue=true \
+                ParameterKey=SubnetIds,UsePreviousValue=true
+            
+            # Wait for stack update to complete
+            aws cloudformation wait stack-update-complete --stack-name dev-env
+          fi
